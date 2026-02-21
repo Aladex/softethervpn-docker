@@ -9,6 +9,10 @@ on:
         description: "SoftEther tag or commit to build (leave empty for latest)"
         required: false
         default: ""
+      nightly:
+        description: "Build nightly from master"
+        type: boolean
+        default: false
 
 env:
   UPSTREAM_REPO: SoftEtherVPN/SoftEtherVPN
@@ -92,7 +96,7 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}/softethervpn_${{ matrix.component }}:latest
 
   check-nightly:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || inputs.nightly == true
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
