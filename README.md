@@ -1,32 +1,53 @@
-# SoftEtherVPN Docker Images
+# SoftEther VPN Docker Images
 
-This repository contains three Dockerfiles for personal use. You can also use them. I personally build them in Jenkins and push them to DockerHub.
+[![Build SoftEther VPN Docker Images](https://github.com/Aladex/softethervpn-docker/actions/workflows/build.yml/badge.svg)](https://github.com/Aladex/softethervpn-docker/actions/workflows/build.yml)
 
-## Dockerfiles
+Multi-architecture Docker images for SoftEther VPN (server, client, bridge), built automatically from the official [SoftEtherVPN](https://github.com/SoftEtherVPN/SoftEtherVPN) source.
 
-- **Dockerfile.bridge**: This Dockerfile builds a SoftEtherVPN bridge. It clones the SoftEtherVPN repository, compiles the source code, and sets up the necessary environment to run the VPN bridge.
+## Images
 
-- **Dockerfile.client**: This Dockerfile builds a SoftEtherVPN client. Similar to the bridge Dockerfile, it clones the SoftEtherVPN repository, compiles the source code, and sets up the environment to run the VPN client.
+| Component | Image |
+|-----------|-------|
+| Server | `aladex/softethervpn_server` |
+| Client | `aladex/softethervpn_client` |
+| Bridge | `aladex/softethervpn_bridge` |
 
-- **Dockerfile.server**: This Dockerfile builds a SoftEtherVPN server. It follows the same steps as the other Dockerfiles, cloning the repository, compiling the source code, and setting up the environment to run the VPN server.
+**Architectures:** `linux/amd64`, `linux/arm64`
 
-## Build Process
+## Quick Start
 
-All Dockerfiles use the latest `alpine` image to ensure the most up-to-date base environment. The build process involves:
+```bash
+docker run -d --name vpnserver \
+  --cap-add NET_ADMIN \
+  -v vpn_config:/mnt \
+  -p 443:443 -p 992:992 -p 1194:1194/udp -p 5555:5555 \
+  aladex/softethervpn_server:latest
+```
 
-1. Cloning the SoftEtherVPN repository.
-2. Installing necessary dependencies.
-3. Compiling the SoftEtherVPN source code.
-4. Setting up the runtime environment.
+## Tags
 
-## Official Repository
+- `latest` — built from the most recent upstream tag
+- `<version>` — specific SoftEther release (e.g. `5.2.5188`)
 
-Please note, this is **not** the official repository for SoftEtherVPN. If you are looking for the source code or official documentation, you can find it here:
+## Building Locally
 
-[SoftEtherVPN Official GitHub Repository](https://github.com/SoftEtherVPN/SoftEtherVPN)
+```bash
+# Server (default)
+docker buildx build --build-arg COMPONENT=server --build-arg SOFTETHER_TAG=5.2.5188 -t softether-server .
 
-This Docker image is used for building and checking SoftEtherVPN updates, with commits and tags from the official branch.
+# Client
+docker buildx build --build-arg COMPONENT=client -t softether-client .
+
+# Bridge
+docker buildx build --build-arg COMPONENT=bridge -t softether-bridge .
+```
+
+Omit `SOFTETHER_TAG` to build from the latest master branch.
+
+## CI/CD
+
+GitHub Actions workflow runs daily, checks for new upstream tags in `SoftEtherVPN/SoftEtherVPN`, and automatically builds + pushes all three components for both architectures. Can also be triggered manually via `workflow_dispatch`.
 
 ## License
 
-This project follows the same license as the official SoftEtherVPN repository. For more information, check the license in the official repository.
+Same license as the official [SoftEtherVPN repository](https://github.com/SoftEtherVPN/SoftEtherVPN).

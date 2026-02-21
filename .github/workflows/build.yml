@@ -1,0 +1,160 @@
+name: Build SoftEther VPN Docker Images
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "SoftEther tag or commit to build (leave empty for latest)"
+        required: false
+        default: ""
+
+env:
+  UPSTREAM_REPO: SoftEtherVPN/SoftEtherVPN
+  DOCKERHUB_REPO: aladex
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Manual build requested for: $TAG"
+            exit 0
+          fi
+
+          TAG=$(curl -s "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/tags?per_page=1" \
+            | jq -r '.[0].name')
+
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Failed to fetch upstream tag"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Latest upstream tag: $TAG"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_REPO }}/softethervpn_server/tags/$TAG")
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Tag $TAG already exists on Docker Hub, skipping"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New tag: $TAG"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-release:
+    needs: check-release
+    if: needs.check-release.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [server, client, bridge]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            COMPONENT=${{ matrix.component }}
+            SOFTETHER_TAG=${{ needs.check-release.outputs.tag }}
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}/softethervpn_${{ matrix.component }}:${{ needs.check-release.outputs.tag }}
+            ${{ env.DOCKERHUB_REPO }}/softethervpn_${{ matrix.component }}:latest
+
+  check-nightly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+    steps:
+      - name: Check latest master commit
+        id: resolve
+        run: |
+          SHA=$(curl -s "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/commits/master" \
+            | jq -r '.sha')
+
+          if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
+            echo "Failed to fetch upstream master SHA"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Latest master commit: $SHA"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_REPO }}/softethervpn_server/tags/$SHA")
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Commit $SHA already built, skipping nightly"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New commit, building nightly"
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-nightly:
+    needs: check-nightly
+    if: needs.check-nightly.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [server, client, bridge]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push nightly
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            COMPONENT=${{ matrix.component }}
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}/softethervpn_${{ matrix.component }}:${{ needs.check-nightly.outputs.sha }}
+            ${{ env.DOCKERHUB_REPO }}/softethervpn_${{ matrix.component }}:nightly
